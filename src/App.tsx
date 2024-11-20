@@ -3,15 +3,50 @@ import "./App.css";
 import TransgateConnect from "@zkpass/transgate-js-sdk";
 import type { Result } from "@zkpass/transgate-js-sdk/lib/types";
 import { ethers } from "ethers";
+import { useReadGetSecretGetSecret, useWriteGetSecretAssignSecret } from "./generated";
+import { readContract } from "viem/actions";
+
 export type TransgateError = {
-	message: string,
-	code: number
+	message: string;
+	code: number;
+};
+
+export type Proof = {
+	taskId: `0x${string}`,
+	schemaId: `0x${string}`,
+	uHash: `0x${string}`,
+	recipient: `0x${string}`,
+	publicFieldsHash: `0x${string}`,
+	validator: `0x${string}`,
+	allocatorSignature: `0x${string}`,
+	validatorSignature: `0x${string}`
 }
+
+const contractAddress = "0x77123Ae6aB508Dcb9B4Cc1F8EEd84b91A4Db2F84";
+
 const App = () => {
-	const [appId, setAppId] = useState<string>("6a303b18-0c34-4797-8de9-ff36efb82e43");
-	const [schemaId, setSchemaId] = useState<string>("c5e3eb613b034087bc339d3e71320c8e");
+	let chainParams: Proof;
+	const [appId, setAppId] = useState<string>(
+		"6a303b18-0c34-4797-8de9-ff36efb82e43"
+	  );
+	  const [schemaId, setSchemaId] = useState<string>(
+		"c5e3eb613b034087bc339d3e71320c8e"
+	  );
 	const [result, setResult] = useState<Result | undefined>(undefined);
-  const requestVerifyMessage = async (
+	const [secret, setSecret] = useState<string | undefined>("0x");
+	const { writeContractAsync, isPending } = useWriteGetSecretAssignSecret();
+	const { data, isPending: isPendingRead, refetch } = useReadGetSecretGetSecret({
+		address: contractAddress
+	});
+
+	useEffect(() => {
+		if (!isPending || !isPendingRead) {
+			setSecret(data ?? "");
+		}
+	}, [isPending, data])
+
+
+	const requestVerifyMessage = async (
 		e: FormEvent,
 		appId: string,
 		schemaId: string,
@@ -27,18 +62,39 @@ const App = () => {
 				const recipient = await signer?.getAddress()
 				const res = (await connector.launch(schemaId, recipient)) as Result;
 				console.log("Result", res);
-        const verifiedResult = connector.verifyProofMessageSignature(
+
+				const validatedResult = connector.verifyProofMessageSignature(
 					"evm",
 					schemaId,
 					res
 				);
 
-				if (verifiedResult) {
-					alert("Verified Result");
+				if (validatedResult) {
+					alert("Validated Result");
+					console.log(res);
 					setResult(res);
+					const taskId = ethers.hexlify(ethers.toUtf8Bytes(res.taskId)) as `0x${string}` // to hex
+					const schemaIdHex = ethers.hexlify(ethers.toUtf8Bytes(schemaId)) as `0x${string}`// to hex
+					if (recipient) {
+						chainParams = {
+							taskId,
+							schemaId: schemaIdHex,
+							uHash: res.uHash as `0x${string}`,
+							recipient: recipient as `0x${string}`,
+							publicFieldsHash: res.publicFieldsHash as `0x${string}`,
+							validator: res.validatorAddress as `0x${string}`,
+							allocatorSignature: res.allocatorSignature as `0x${string}`,
+							validatorSignature: res.validatorSignature as `0x${string}`,
+						}
+						await writeContractAsync({
+							address: contractAddress,
+							args: [chainParams]
+						});
+						await refetch();
+					}
 				}
 
-} else {
+			} else {
 				console.log(
 					"Please install zkPass Transgate from https://chromewebstore.google.com/detail/zkpass-transgate/afkoofjocpbclhnldmmaphappihehpma",
 				);
@@ -49,7 +105,8 @@ const App = () => {
 			console.log(transgateError);
 		}
 	};
-	return(
+
+	return (
 		<div className="app">
 			<form
 				className="form"
@@ -76,14 +133,15 @@ const App = () => {
 					/>
 				</label>
 				<button type="submit">Start Verification</button>
-				{result !== undefined ? (
+				{result !== undefined ? (<>
 					<pre>Result: {JSON.stringify(result, null, 2)}</pre>
-				) : (
+					<h1>Secret: {secret}</h1>
+				</>) : (
 					""
 				)}
 			</form>
 		</div>
 	);
-}
+};
 
 export default App;
